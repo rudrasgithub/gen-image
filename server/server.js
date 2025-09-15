@@ -14,9 +14,9 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }))
 app.use(cors({
     origin: [
-        'https://gen-image-oija.onrender.com',
+        'https://imagify-five-murex.vercel.app',
         'http://localhost:5173',
-        'https://your-client-deployment.vercel.app'
+        'http://localhost:3000'
     ]
 }))
 
