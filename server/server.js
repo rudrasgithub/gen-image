@@ -5,14 +5,20 @@ import connectDB from './config/mongodb.js';
 import userRouter from './routes/userRoutes.js'
 import imageRouter from './routes/imageRoutes.js';
 
-const PORT = process.env.PORT || 4001;
+const PORT = process.env.PORT;
 const app = express();
 
 await connectDB();
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }))
-app.use(cors())
+app.use(cors({
+    origin: [
+        'https://gen-image-oija.onrender.com',
+        'http://localhost:5173',
+        'https://your-client-deployment.vercel.app'
+    ]
+}))
 
 app.use('/api/user', userRouter)
 app.use('/api/image', imageRouter)
