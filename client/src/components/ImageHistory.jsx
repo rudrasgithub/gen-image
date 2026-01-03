@@ -1,28 +1,151 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import { useAppContext } from '../context/AppContext';
 import toast from 'react-hot-toast';
 import { motion } from 'motion/react';
 import axios from 'axios';
+
+// Memoized Image Card Component — prevents re-render of individual cards
+const ImageCard = React.memo(({ image, onToggleFavorite, onDelete, onDownload, onSelect, isLoading }) => {
+  const handleFavClick = (e) => {
+    e.stopPropagation();
+    onToggleFavorite(image._id);
+  };
+
+  const handleDelClick = (e) => {
+    e.stopPropagation();
+    onDelete(image._id);
+  };
+
+  const handleDlClick = (e) => {
+    e.stopPropagation();
+    onDownload(image.imageUrl, image.prompt);
+  };
+
+  return (
+    <motion.div
+      key={image._id}
+      initial={{ opacity: 0, scale: 0.9 }}
+      animate={{ opacity: 1, scale: 1 }}
+      whileHover={{ scale: 1.02 }}
+      className="bg-white rounded-xl shadow-md overflow-hidden hover:shadow-xl transition-all duration-300"
+    >
+      {/* Image Container */}
+      <div 
+        className="relative group cursor-pointer bg-gray-100 overflow-hidden"
+        onClick={() => onSelect(image)}
+        style={{ paddingBottom: '100%', position: 'relative' }}
+      >
+        <img
+          src={image.imageUrl}
+          alt={image.prompt}
+          className="w-full h-full object-cover absolute inset-0 group-hover:scale-110 transition-transform duration-300"
+        />
+        
+        {/* Hover Overlay */}
+        <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-50 transition-all duration-300 flex items-center justify-center gap-2 opacity-0 group-hover:opacity-100">
+          <button
+            onClick={handleDlClick}
+            disabled={isLoading}
+            className="bg-white text-black px-4 py-2 rounded-lg font-semibold hover:bg-gray-200 disabled:opacity-50"
+          >
+            📥 Download
+          </button>
+        </div>
+      </div>
+
+      {/* Image Info */}
+      <div className="p-4">
+        {/* Prompt */}
+        <p className="text-sm text-gray-700 mb-3 line-clamp-2 font-medium">
+          {image.prompt}
+        </p>
+        
+        {/* Metadata */}
+        <div className="flex justify-between items-center text-xs text-gray-500 mb-3">
+          <span>
+            📅 {new Date(image.createdAt).toLocaleDateString('en-US', {
+              month: 'short',
+              day: 'numeric',
+              year: '2-digit'
+            })}
+          </span>
+          {image.generationTime && (
+            <span>⏱️ {(image.generationTime / 1000).toFixed(2)}s</span>
+          )}
+        </div>
+
+        {/* Action Buttons */}
+        <div className="flex gap-2">
+          <button
+            onClick={handleFavClick}
+            disabled={isLoading}
+            className={`flex-1 py-2 rounded-lg text-sm font-semibold transition-all duration-300 disabled:opacity-50 ${
+              image.isFavorite
+                ? 'bg-yellow-100 text-yellow-700 hover:bg-yellow-200'
+                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+            }`}
+          >
+            {image.isFavorite ? '⭐' : '☆'} Favorite
+          </button>
+          <button
+            onClick={handleDelClick}
+            disabled={isLoading}
+            className="flex-1 py-2 rounded-lg text-sm font-semibold bg-red-100 text-red-700 hover:bg-red-200 transition-all duration-300 disabled:opacity-50"
+          >
+            🗑️ Delete
+          </button>
+        </div>
+      </div>
+    </motion.div>
+  );
+});
+
+ImageCard.displayName = 'ImageCard';
 
 const ImageHistory = () => {
   const { getBackendUrl, token, imageHistory, historyLoading, loadImageHistory } = useAppContext();
   const [filter, setFilter] = useState('all');
   const [selectedImage, setSelectedImage] = useState(null);
   const [operationLoading, setOperationLoading] = useState(false);
+  // Track local state for optimistic updates
+  const [localImageUpdates, setLocalImageUpdates] = useState({});
 
-  // Load history when component mounts
+  // Load history only once when component mounts
   React.useEffect(() => {
-    loadImageHistory();
+    if (imageHistory.length === 0) {
+      loadImageHistory();
+    }
   }, []);
 
-  // Filter images based on favorite status
-  const displayedImages = filter === 'favorites' 
-    ? imageHistory.filter(img => img.isFavorite) 
-    : imageHistory;
+  // Memoized filtered list — only recalculates when imageHistory or filter changes
+  const displayedImages = useMemo(() => {
+    const baseImages = imageHistory.map(img => ({
+      ...img,
+      // Apply local optimistic updates
+      ...(localImageUpdates[img._id] || {})
+    }));
 
-  const handleToggleFavorite = async (imageId) => {
+    return filter === 'favorites' 
+      ? baseImages.filter(img => img.isFavorite) 
+      : baseImages;
+  }, [imageHistory, filter, localImageUpdates]);
+
+  // Memoized callback — prevents unnecessary re-creation
+  const handleToggleFavorite = useCallback(async (imageId) => {
     try {
       setOperationLoading(true);
+      
+      // Optimistic update — immediately toggle in UI
+      setLocalImageUpdates(prev => ({
+        ...prev,
+        [imageId]: {
+          ...(prev[imageId] || {}),
+          isFavorite: !(prev[imageId]?.isFavorite !== undefined 
+            ? prev[imageId].isFavorite 
+            : imageHistory.find(img => img._id === imageId)?.isFavorite)
+        }
+      }));
+
       const backendUrl = getBackendUrl();
       const { data } = await axios.post(
         `${backendUrl}/api/image/toggle-favorite`,
@@ -32,23 +155,44 @@ const ImageHistory = () => {
 
       if (data.success) {
         toast.success(data.message);
-        await loadImageHistory();
+        // Keep the optimistic update; refresh history in background
+        setTimeout(() => loadImageHistory(), 500);
       } else {
+        // Revert on failure
+        setLocalImageUpdates(prev => {
+          const updated = { ...prev };
+          delete updated[imageId];
+          return updated;
+        });
         toast.error(data.message);
       }
     } catch (err) {
       console.error('Toggle favorite error:', err);
+      // Revert on error
+      setLocalImageUpdates(prev => {
+        const updated = { ...prev };
+        delete updated[imageId];
+        return updated;
+      });
       toast.error('Failed to toggle favorite');
     } finally {
       setOperationLoading(false);
     }
-  };
+  }, [imageHistory, token, getBackendUrl, loadImageHistory]);
 
-  const handleDeleteImage = async (imageId) => {
+  // Memoized callback for delete
+  const handleDeleteImage = useCallback(async (imageId) => {
     if (!window.confirm('Are you sure you want to delete this image?')) return;
 
     try {
       setOperationLoading(true);
+      
+      // Optimistic update — remove from UI immediately
+      setLocalImageUpdates(prev => ({
+        ...prev,
+        [imageId]: { isDeleted: true }
+      }));
+
       const backendUrl = getBackendUrl();
       const { data } = await axios.post(
         `${backendUrl}/api/image/delete-image`,
@@ -58,20 +202,34 @@ const ImageHistory = () => {
 
       if (data.success) {
         toast.success('Image deleted');
+        // Refresh history from backend
         await loadImageHistory();
         setSelectedImage(null);
       } else {
+        // Revert on failure
+        setLocalImageUpdates(prev => {
+          const updated = { ...prev };
+          delete updated[imageId];
+          return updated;
+        });
         toast.error(data.message);
       }
     } catch (err) {
       console.error('Delete image error:', err);
+      // Revert on error
+      setLocalImageUpdates(prev => {
+        const updated = { ...prev };
+        delete updated[imageId];
+        return updated;
+      });
       toast.error('Failed to delete image');
     } finally {
       setOperationLoading(false);
     }
-  };
+  }, [token, getBackendUrl, loadImageHistory]);
 
-  const handleDownload = (imageUrl, prompt) => {
+  // Memoized callback for download
+  const handleDownload = useCallback((imageUrl, prompt) => {
     try {
       const link = document.createElement('a');
       link.href = imageUrl;
@@ -84,7 +242,7 @@ const ImageHistory = () => {
       console.error('Download error:', err);
       toast.error('Failed to download image');
     }
-  };
+  }, []);
 
   if (historyLoading) {
     return (
@@ -165,84 +323,15 @@ const ImageHistory = () => {
           /* Image Grid */
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
             {displayedImages.map((image) => (
-              <motion.div
+              <ImageCard
                 key={image._id}
-                initial={{ opacity: 0, scale: 0.9 }}
-                animate={{ opacity: 1, scale: 1 }}
-                whileHover={{ scale: 1.02 }}
-                className="bg-white rounded-xl shadow-md overflow-hidden hover:shadow-xl transition-all duration-300"
-              >
-                {/* Image Container */}
-                <div 
-                  className="relative group cursor-pointer bg-gray-100 overflow-hidden"
-                  onClick={() => setSelectedImage(image)}
-                  style={{ paddingBottom: '100%', position: 'relative' }}
-                >
-                  <img
-                    src={image.imageUrl}
-                    alt={image.prompt}
-                    className="w-full h-full object-cover absolute inset-0 group-hover:scale-110 transition-transform duration-300"
-                  />
-                  
-                  {/* Hover Overlay */}
-                  <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-50 transition-all duration-300 flex items-center justify-center gap-2 opacity-0 group-hover:opacity-100">
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleDownload(image.imageUrl, image.prompt);
-                      }}
-                      disabled={operationLoading}
-                      className="bg-white text-black px-4 py-2 rounded-lg font-semibold hover:bg-gray-200 disabled:opacity-50"
-                    >
-                      📥 Download
-                    </button>
-                  </div>
-                </div>
-
-                {/* Image Info */}
-                <div className="p-4">
-                  {/* Prompt */}
-                  <p className="text-sm text-gray-700 mb-3 line-clamp-2 font-medium">
-                    {image.prompt}
-                  </p>
-                  
-                  {/* Metadata */}
-                  <div className="flex justify-between items-center text-xs text-gray-500 mb-3">
-                    <span>
-                      📅 {new Date(image.createdAt).toLocaleDateString('en-US', {
-                        month: 'short',
-                        day: 'numeric',
-                        year: '2-digit'
-                      })}
-                    </span>
-                    {image.generationTime && (
-                      <span>⏱️ {(image.generationTime / 1000).toFixed(2)}s</span>
-                    )}
-                  </div>
-
-                  {/* Action Buttons */}
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => handleToggleFavorite(image._id)}
-                      disabled={operationLoading}
-                      className={`flex-1 py-2 rounded-lg text-sm font-semibold transition-all duration-300 disabled:opacity-50 ${
-                        image.isFavorite
-                          ? 'bg-yellow-100 text-yellow-700 hover:bg-yellow-200'
-                          : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                      }`}
-                    >
-                      {image.isFavorite ? '⭐' : '☆'} Favorite
-                    </button>
-                    <button
-                      onClick={() => handleDeleteImage(image._id)}
-                      disabled={operationLoading}
-                      className="flex-1 py-2 rounded-lg text-sm font-semibold bg-red-100 text-red-700 hover:bg-red-200 transition-all duration-300 disabled:opacity-50"
-                    >
-                      🗑️ Delete
-                    </button>
-                  </div>
-                </div>
-              </motion.div>
+                image={image}
+                onToggleFavorite={handleToggleFavorite}
+                onDelete={handleDeleteImage}
+                onDownload={handleDownload}
+                onSelect={setSelectedImage}
+                isLoading={operationLoading}
+              />
             ))}
           </div>
         )}
