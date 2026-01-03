@@ -8,7 +8,7 @@ import axios from 'axios';
 import toast from 'react-hot-toast';
 
 const Login = () => {
-    const { setUser, setShowLogin, backendUrl, setToken } = useAppContext();
+    const { setUser, setShowLogin, getBackendUrl, setToken } = useAppContext();
 
     const [state, setState] = useState('Login')
 
@@ -28,6 +28,8 @@ const Login = () => {
         e.preventDefault();
 
         try {
+            const backendUrl = getBackendUrl();
+            console.log('🔐 Login posting to:', backendUrl);
 
             if (state === 'Login') {
                 const { data } = await axios.post(`${backendUrl}/api/user/login`, {

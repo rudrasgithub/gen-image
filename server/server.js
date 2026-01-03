@@ -5,7 +5,7 @@ import connectDB from './config/mongodb.js';
 import userRouter from './routes/userRoutes.js'
 import imageRouter from './routes/imageRoutes.js';
 
-const PORT = process.env.PORT;
+const PORT = process.env.PORT || 4000;
 const app = express();
 
 await connectDB();
@@ -23,6 +23,12 @@ app.use(cors({
 app.use('/api/user', userRouter)
 app.use('/api/image', imageRouter)
 
+// Health check endpoint
+app.get('/api/health', (req, res) => {
+    res.json({ success: true, message: 'Backend is running ✅' })
+})
+
 app.listen(PORT, () => {
     console.log(`Server running on port: ${PORT}`)
+    console.log(`NODE_ENV=${process.env.NODE_ENV || 'development'}`)
 })

@@ -8,11 +8,12 @@ import axios from 'axios'
 
 const BuyCredit = () => {
 
-  const { user, backendUrl, token, setShowLogin, loadCreditData } = useAppContext()
+  const { user, getBackendUrl, token, setShowLogin, loadCreditData } = useAppContext()
 
   const navigate = useNavigate()
 
   const initPay = async (order) => {
+    const backendUrl = getBackendUrl();
     const options = {
       key: import.meta.env.VITE_RAZORPAY_KEY_ID,
       amount: order.amount,
@@ -48,6 +49,7 @@ const BuyCredit = () => {
         setShowLogin(true)
       }
 
+      const backendUrl = getBackendUrl();
       const { data } = await axios.post(`${backendUrl}/api/user/pay-razor`, { planId }, {
         headers: { token }
       })
