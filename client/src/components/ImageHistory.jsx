@@ -103,12 +103,10 @@ const ImageCard = React.memo(({ image, onToggleFavorite, onDelete, onDownload, o
 ImageCard.displayName = 'ImageCard';
 
 const ImageHistory = () => {
-  const { getBackendUrl, token, imageHistory, historyLoading, loadImageHistory } = useAppContext();
+  const { getBackendUrl, token, imageHistory, historyLoading, loadImageHistory, imageUpdates, setImageUpdates } = useAppContext();
   const [filter, setFilter] = useState('all');
   const [selectedImage, setSelectedImage] = useState(null);
   const [operationLoading, setOperationLoading] = useState(false);
-  // Track local state for optimistic updates
-  const [localImageUpdates, setLocalImageUpdates] = useState({});
 
   // Load history only once when component mounts
   React.useEffect(() => {
@@ -121,22 +119,23 @@ const ImageHistory = () => {
   const displayedImages = useMemo(() => {
     const baseImages = imageHistory.map(img => ({
       ...img,
-      // Apply local optimistic updates
-      ...(localImageUpdates[img._id] || {})
-    }));
+      // Apply global optimistic updates
+      ...(imageUpdates[img._id] || {})
+    }))
+    .filter(img => !img.isDeleted); // Hide deleted images
 
     return filter === 'favorites' 
       ? baseImages.filter(img => img.isFavorite) 
       : baseImages;
-  }, [imageHistory, filter, localImageUpdates]);
+  }, [imageHistory, filter, imageUpdates]);
 
   // Memoized callback — prevents unnecessary re-creation
   const handleToggleFavorite = useCallback(async (imageId) => {
     try {
       setOperationLoading(true);
       
-      // Optimistic update — immediately toggle in UI
-      setLocalImageUpdates(prev => ({
+      // Optimistic update — immediately toggle in GLOBAL state
+      setImageUpdates(prev => ({
         ...prev,
         [imageId]: {
           ...(prev[imageId] || {}),
@@ -159,7 +158,7 @@ const ImageHistory = () => {
         setTimeout(() => loadImageHistory(), 500);
       } else {
         // Revert on failure
-        setLocalImageUpdates(prev => {
+        setImageUpdates(prev => {
           const updated = { ...prev };
           delete updated[imageId];
           return updated;
@@ -169,7 +168,7 @@ const ImageHistory = () => {
     } catch (err) {
       console.error('Toggle favorite error:', err);
       // Revert on error
-      setLocalImageUpdates(prev => {
+      setImageUpdates(prev => {
         const updated = { ...prev };
         delete updated[imageId];
         return updated;
@@ -187,8 +186,8 @@ const ImageHistory = () => {
     try {
       setOperationLoading(true);
       
-      // Optimistic update — remove from UI immediately
-      setLocalImageUpdates(prev => ({
+      // Optimistic update — mark as deleted in GLOBAL state
+      setImageUpdates(prev => ({
         ...prev,
         [imageId]: { isDeleted: true }
       }));
@@ -202,12 +201,12 @@ const ImageHistory = () => {
 
       if (data.success) {
         toast.success('Image deleted');
-        // Refresh history from backend
+        // Refresh history from backend (which removes the image)
         await loadImageHistory();
         setSelectedImage(null);
       } else {
         // Revert on failure
-        setLocalImageUpdates(prev => {
+        setImageUpdates(prev => {
           const updated = { ...prev };
           delete updated[imageId];
           return updated;
@@ -217,7 +216,7 @@ const ImageHistory = () => {
     } catch (err) {
       console.error('Delete image error:', err);
       // Revert on error
-      setLocalImageUpdates(prev => {
+      setImageUpdates(prev => {
         const updated = { ...prev };
         delete updated[imageId];
         return updated;

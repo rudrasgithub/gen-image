@@ -13,6 +13,8 @@ const AppContextProvider = ({ children }) => {
     const [imageHistory, setImageHistory] = useState([]);
     const [historyLoading, setHistoryLoading] = useState(false);
     const [lastHistoryError, setLastHistoryError] = useState(null);
+    // Track which images to update optimistically (id -> updates)
+    const [imageUpdates, setImageUpdates] = useState({});
 
     const navigate = useNavigate();
 
@@ -230,7 +232,9 @@ const AppContextProvider = ({ children }) => {
         imageHistory,
         setImageHistory,
         historyLoading,
-        getBackendUrl
+        getBackendUrl,
+        imageUpdates,
+        setImageUpdates
     }
 
     return (
